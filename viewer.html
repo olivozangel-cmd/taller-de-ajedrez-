@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Ranking Pro Ajedrez - Visualizador</title>
+  <style>
+    :root {
+      --primary: #2c3e50;
+      --accent: #d4af37;
+      --danger: #e74c3c;
+      --bg: #f4f4f9;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, system-ui, sans-serif;
+      background: var(--bg);
+      margin: 0;
+      padding: 15px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .container {
+      background: white;
+      padding: 20px;
+      border-radius: 15px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+      width: 100%;
+      max-width: 500px;
+      margin-bottom: 20px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th {
+      background: var(--primary);
+      color: white;
+      padding: 12px;
+      text-align: left;
+      font-size: 0.9rem;
+    }
+
+    td {
+      padding: 15px 12px;
+      border-bottom: 1px solid #eee;
+    }
+
+    .loading-spinner {
+      text-align: center;
+      color: var(--primary);
+      font-weight: bold;
+      padding: 20px;
+    }
+
+    .status {
+      margin-top: 12px;
+      text-align: center;
+      font-size: 0.9rem;
+      color: #666;
+    }
+
+    .status.ok { color: #1e7e34; }
+    .status.bad { color: var(--danger); }
+  </style>
+</head>
+<body>
+  <h1>🏆 Ranking en Tiempo Real</h1>
+
+  <div class="container">
+    <div id="loading" class="loading-spinner">Conectando al servidor...</div>
+
+    <table id="tablaRanking" style="display:none;">
+      <thead>
+        <tr>
+          <th>Pos</th>
+          <th>Jugador</th>
+          <th>Pts</th>
+        </tr>
+      </thead>
+      <tbody id="cuerpoTabla"></tbody>
+    </table>
+
+    <div id="status" class="status">Esperando datos...</div>
+  </div>
+
+  <script>
+    const loading = document.getElementById('loading');
+    const tabla = document.getElementById('tablaRanking');
+    const tbody = document.getElementById('cuerpoTabla');
+    const statusEl = document.getElementById('status');
+
+    let socket = null;
+    let reconnectTimer = null;
+
+    function setStatus(texto, tipo = '') {
+      statusEl.textContent = texto;
+      statusEl.className = 'status ' + (tipo || '');
+    }
+
+    function renderizarTabla(jugadores) {
+      tbody.innerHTML = '';
+      loading.style.display = 'none';
+      tabla.style.display = 'table';
+
+      jugadores.sort((a, b) => b.puntos - a.puntos);
+
+      jugadores.forEach((j, index) => {
+        const tr = document.createElement('tr');
+
+        tr.innerHTML = `
+          <td style="color:var(--accent); font-weight:bold">${index + 1}º</td>
+          <td>${escapeHTML(j.nombre)}</td>
+          <td style="font-weight:bold">${j.puntos}</td>
+        `;
+
+        tbody.appendChild(tr);
+      });
+
+      setStatus(`Última actualización: ${new Date().toLocaleTimeString()}`, 'ok');
+    }
+
+    function escapeHTML(texto) {
+      return String(texto)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
+
+    function conectarWS() {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${proto}//${'enjoy-theory.gl.at.ply.gg:1117'}/ws`;
+
+      socket = new WebSocket(wsUrl);
+
+      socket.addEventListener('open', () => {
+        loading.style.display = 'block';
+        loading.innerText = 'Conectado, esperando ranking...';
+        setStatus('Conectado al servidor', 'ok');
+      });
+
+      socket.addEventListener('message', (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+
+          if (msg.type === 'ranking') {
+            renderizarTabla(Array.isArray(msg.data) ? msg.data : []);
+          }
+
+          if (msg.type === 'error') {
+            setStatus(msg.message || 'Error recibido del servidor', 'bad');
+          }
+        } catch (err) {
+          setStatus('Mensaje inválido del servidor', 'bad');
+        }
+      });
+
+      socket.addEventListener('close', () => {
+        loading.style.display = 'block';
+        loading.innerText = 'Reconectando...';
+        setStatus('Conexión perdida. Reconectando...', 'bad');
+
+        clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(conectarWS, 1500);
+      });
+
+      socket.addEventListener('error', () => {
+        setStatus('Error con la conexión WS', 'bad');
+      });
+    }
+
+    conectarWS();
+  </script>
+</body>
+</html>
